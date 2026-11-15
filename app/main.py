@@ -19,8 +19,6 @@ async def lifespan(app: FastAPI):
     await pool.close()
     print("база данных отключена")
 
-app = FastAPI(lifespan=lifespan)
-
 app = FastAPI(
     title="Магазин",
     description="API для магазина тест",
@@ -32,4 +30,4 @@ app.include_router(items_router)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "message": "API is healthy"}
+    return {"status": "ok", "message": "Сервис работает"}
