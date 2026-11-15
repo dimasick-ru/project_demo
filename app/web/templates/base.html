@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Обзор{% endblock %} · Рецепты долголетия</title>
+  <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/app.css" rel="stylesheet">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<aside class="sidebar" id="navigation">
+  <a class="brand" href="/"><span class="brand-mark">р</span><span>Рецепты<br><strong>долголетия</strong></span></a>
+  <div class="workspace-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+  <nav aria-label="Основная навигация">
+    <a class="nav-item {% if active == 'overview' %}selected{% endif %}" href="/"><span>◫</span> Обзор центра</a>
+    {% for group in groups %}
+    <div class="nav-group">{{ group }}</div>
+    {% for item in entities.values() if item.group == group %}<a href="/workspace/{{ item.key }}" class="nav-item {% if active == item.key %}selected{% endif %}" {% if active == item.key %}aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
+    {% endfor %}
+  </nav>
+  <div class="sidebar-footer"><span class="status-dot"></span> Прототип для демонстрации</div>
+</aside>
+<div class="main-shell">
+  <header class="topbar"><button type="button" class="btn btn-light mobile-menu" aria-label="Открыть меню" aria-expanded="false" aria-controls="navigation">☰</button><span>Центр здоровья и заботы</span><div class="d-flex align-items-center gap-3"><span class="demo-badge">ДЕМО</span><span class="avatar">РД</span></div></header>
+  <main class="content">{% block content %}{% endblock %}</main>
+  <footer class="page-footer">Рецепты долголетия <span>Рабочий прототип · данные сохраняются локально</span></footer>
+</div>
+</body>
+</html>

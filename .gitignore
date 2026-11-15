@@ -9,4 +9,5 @@ __pycache__/
 
 .vscode/
 .idea/
+.artifacts/
 .DS_Store

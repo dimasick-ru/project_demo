@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Редактирование' if record_id else 'Новая запись' }} · {{ entity.title }}{% endblock %}
+{% block content %}
+<a class="back-link" href="/workspace/{{ entity.key }}">← {{ entity.title }}</a>
+<div class="page-heading mt-3"><div><div class="eyebrow">{{ entity.group }}</div><h1>{{ 'Редактирование записи' if record_id else 'Новая запись' }}</h1><p>{{ entity.title }}{% if record_id %} · #{{ record_id }}{% endif %}</p></div></div>
+<form action="/workspace/{{ entity.key }}/save" method="post" class="panel editor-form">
+<input type="hidden" name="_id" value="{{ record_id or '' }}">
+<div class="panel-heading"><h2>Основная информация</h2><span class="small text-secondary">* обязательные поля</span></div>
+{% if errors %}<div class="alert alert-danger" role="alert">{{ errors.get('_form', 'Проверьте отмеченные поля. Введённые данные сохранены в форме.') }}</div>{% endif %}
+<div class="row g-4">
+{% for field in entity.fields %}<div class="{{ 'col-12' if field.kind in ['textarea','json'] else 'col-md-6' }}"><label class="form-label" for="{{ field.key }}">{{ field.label }}{% if field.required %} <span class="text-danger">*</span>{% endif %}</label>
+{% set value = values.get(field.key)|input_value(field.kind) %}
+{% if field.reference %}<select class="form-select {{ 'is-invalid' if field.key in errors }}" id="{{ field.key }}" name="{{ field.key }}" {% if field.required %}required{% endif %} {% if field.key in errors %}aria-invalid="true" aria-describedby="error-{{ field.key }}"{% endif %}><option value="">Выберите запись</option>{% for id, name in references[field.reference].items() %}<option value="{{ id }}" {% if id|string == value %}selected{% endif %}>{{ name }} · #{{ id }}</option>{% endfor %}</select><div class="form-text"><a href="/workspace/{{ field.reference }}/new" target="_blank" rel="noopener">Добавить в «{{ entities[field.reference].title }}» ↗</a><span> · после добавления обновите форму</span></div>
+{% elif field.kind in ['textarea','json'] %}<textarea class="form-control {{ 'font-monospace' if field.kind == 'json' }} {{ 'is-invalid' if field.key in errors }}" id="{{ field.key }}" name="{{ field.key }}" rows="{{ 6 if field.kind == 'json' else 3 }}" maxlength="{{ 50000 if field.kind == 'json' else 10000 }}" {% if field.key in errors %}aria-invalid="true" aria-describedby="error-{{ field.key }}"{% endif %}>{{ value }}</textarea>{% if field.kind == 'json' %}<div class="form-text">JSON-массив позиций. Для пустого списка: <code>[]</code>. Поля позиции: {{ 'товар, количество, закупочная цена за штуку, сумма' if entity.key == 'orders' else 'номенклатура, количество, цена, сумма' }}.</div><button class="btn btn-sm btn-light mt-2" type="button" data-json-example="{{ field.key }}" data-kind="{{ entity.key }}">Вставить пример структуры</button>{% endif %}
+{% else %}<input class="form-control {{ 'is-invalid' if field.key in errors }}" id="{{ field.key }}" name="{{ field.key }}" value="{{ value }}" type="{{ 'number' if field.kind in ['number','money'] else field.kind }}" {% if field.required %}required{% endif %} {% if field.kind in ['money','number'] %}min="0" max="9999999999.99" step="{{ '0.01' if field.kind == 'money' else '0.0001' }}"{% else %}maxlength="10000"{% endif %} {% if field.key in errors %}aria-invalid="true" aria-describedby="error-{{ field.key }}"{% endif %}>{% endif %}
+{% if field.key in errors %}<div id="error-{{ field.key }}" class="invalid-feedback d-block">{{ errors[field.key] }}</div>{% endif %}
+</div>{% endfor %}</div>
+{% if references.get('nomenclature') %}<script type="application/json" id="nomenclature-options">{{ references['nomenclature']|tojson }}</script>{% endif %}
+<div class="form-actions"><a class="btn btn-light" href="/workspace/{{ entity.key }}">Отмена</a><button class="btn btn-primary" type="submit">{{ 'Сохранить изменения' if record_id else 'Создать запись' }}</button></div>
+</form>
+{% endblock %}

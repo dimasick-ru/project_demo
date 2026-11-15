@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}{{ entity.title }}{% endblock %}
+{% block content %}
+<div class="eyebrow">{{ entity.group }}</div>
+<div class="page-heading"><div><h1>{{ entity.title }}</h1><p>{{ entity.summary }}</p></div><a class="btn btn-primary" href="/workspace/{{ entity.key }}/new">＋ Добавить запись</a></div>
+{% if saved %}<div class="alert alert-success" role="status">Запись сохранена. Изменения уже доступны в списке.</div>{% endif %}
+<section class="panel"><div class="list-toolbar"><form method="get" role="search" class="search-form" action="/workspace/{{ entity.key }}" hx-get="/workspace/{{ entity.key }}" hx-target="#records" hx-trigger="submit, input changed delay:350ms from:input" hx-indicator="#search-progress"><label class="visually-hidden" for="search">Поиск по разделу</label><span aria-hidden="true">⌕</span><input id="search" name="q" value="{{ q }}" class="form-control" placeholder="Поиск по имени, номеру или статусу…" autocomplete="off"><button class="btn btn-light" type="submit">Найти</button><span id="search-progress" class="htmx-indicator small text-secondary">Поиск…</span></form></div><div id="records" aria-live="polite">{% include 'table.html' %}</div></section>
+{% if entity.key in ['stock','employee_activity','movements','service_log','work_log'] %}<p class="small text-secondary mt-3">В прототипе записи в этом разделе вводятся вручную. Автоматическое проведение документов пока не подключено.</p>{% endif %}
+{% endblock %}
