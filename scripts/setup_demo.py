@@ -31,6 +31,11 @@ def main() -> None:
                 encoding="utf-8"
             )
         )
+        conn.execute(
+            (PROJECT_ROOT / "database/migrations/002_access.sql").read_text(
+                encoding="utf-8"
+            )
+        )
         if args.seed:
             occupied = False
             for key in ENTITIES:

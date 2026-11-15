@@ -7,10 +7,13 @@ from psycopg import Error as DatabaseError
 from psycopg_pool import PoolTimeout
 
 from app.api.items import router as items_router
+from app.core.access import AccessDeniedError
 from app.core.config import PROJECT_ROOT
 from app.db.pool import create_db_poll
-from app.web.routes import database_error
+from app.web.auth_routes import router as auth_router
+from app.web.routes import access_denied, database_error
 from app.web.routes import router as web_router
+from app.web.security import AuthenticationMiddleware
 
 
 @asynccontextmanager
@@ -34,11 +37,14 @@ app = FastAPI(
 
 app.include_router(items_router)
 app.include_router(web_router)
+app.include_router(auth_router)
+app.add_middleware(AuthenticationMiddleware)
 app.mount(
     "/static", StaticFiles(directory=PROJECT_ROOT / "app/web/static"), name="static"
 )
 app.add_exception_handler(DatabaseError, database_error)
 app.add_exception_handler(PoolTimeout, database_error)
+app.add_exception_handler(AccessDeniedError, access_denied)
 
 
 @app.get("/health")

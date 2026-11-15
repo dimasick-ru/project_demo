@@ -11,9 +11,21 @@ from psycopg import Error as DatabaseError
 from psycopg_pool import AsyncConnectionPool
 from starlette.concurrency import run_in_threadpool
 
+from app.core.access import (
+    OWNED,
+    PARENTS,
+    ROLE_LABELS,
+    AccessDeniedError,
+    User,
+    can_read,
+    can_write,
+    require_access,
+)
 from app.core.catalog import ENTITIES, Entity
+from app.repositories import auth as auth_repository
 from app.repositories import prototype as repository
 from app.services import prototype as service
+from app.web.security import check_csrf, current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -57,17 +69,24 @@ def entity_or_404(key: str) -> Entity:
 
 
 def context(request: Request, **kwargs: Any) -> dict[str, Any]:
+    user = getattr(request.state, "user", None)
+    visible = {
+        key: entity for key, entity in ENTITIES.items() if user and can_read(user, key)
+    }
     return {
         "request": request,
-        "entities": ENTITIES,
-        "groups": tuple(dict.fromkeys(entity.group for entity in ENTITIES.values())),
+        "entities": visible,
+        "user": user,
+        "role_labels": ROLE_LABELS,
+        "writable": {key for key in visible if can_write(user, key)},
+        "groups": tuple(dict.fromkeys(entity.group for entity in visible.values())),
         "active": "overview",
         **kwargs,
     }
 
 
 async def lookup(
-    pool: AsyncConnectionPool, entity: Entity
+    pool: AsyncConnectionPool, entity: Entity, user: User
 ) -> dict[str, dict[int, str]]:
     result = {}
     for field in entity.fields:
@@ -75,7 +94,10 @@ async def lookup(
             "nomenclature" if field.kind == "json" else None
         )
         if reference and reference not in result:
-            rows = await repository.list_records(pool, reference)
+            if reference == "employees":
+                result[reference] = await auth_repository.employee_options(pool, user)
+                continue
+            rows = await repository.list_records(pool, reference, user)
             result[reference] = {
                 row["id"]: str(row.get("name") or row.get("number") or row["id"])
                 for row in rows
@@ -86,10 +108,11 @@ async def lookup(
 @router.get("/", response_class=HTMLResponse)
 async def overview(request: Request) -> HTMLResponse:
     pool = request.app.state.db_pool
-    clients = await repository.list_records(pool, "clients")
-    visits = await repository.list_records(pool, "visits")
-    programs = await repository.list_records(pool, "programs")
-    contracts = await repository.list_records(pool, "contracts")
+    user = current_user(request)
+    clients = await repository.list_records(pool, "clients", user)
+    visits = await repository.list_records(pool, "visits", user)
+    programs = await repository.list_records(pool, "programs", user)
+    contracts = await repository.list_records(pool, "contracts", user)
     client_names = {row["id"]: row["name"] for row in clients}
     now = datetime.now()
     upcoming = sorted(
@@ -115,8 +138,10 @@ async def records(
 ) -> HTMLResponse:
     entity = entity_or_404(key)
     pool = request.app.state.db_pool
-    rows = await repository.list_records(pool, key)
-    references = await lookup(pool, entity)
+    user = current_user(request)
+    require_access(user, key)
+    rows = await repository.list_records(pool, key, user)
+    references = await lookup(pool, entity, user)
     total = len(rows)
     if q:
 
@@ -145,6 +170,9 @@ async def records(
             references=references,
             q=q,
             saved=saved,
+            owners=await auth_repository.manager_options(pool)
+            if user.role != "manager" and key in OWNED
+            else {},
         ),
     )
 
@@ -167,20 +195,32 @@ async def render_form(
             values=values,
             record_id=record_id,
             errors=errors or {},
-            references=await lookup(request.app.state.db_pool, entity),
+            references=await lookup(
+                request.app.state.db_pool, entity, current_user(request)
+            ),
+            show_owner=entity.key in OWNED
+            and (entity.key not in PARENTS or entity.key == "sales")
+            and current_user(request).role != "manager",
+            owners=await auth_repository.manager_options(request.app.state.db_pool)
+            if current_user(request).role != "manager"
+            else {},
         ),
     )
 
 
 @router.get("/workspace/{key}/new", response_class=HTMLResponse)
 async def new_form(request: Request, key: str) -> HTMLResponse:
-    return await render_form(request, entity_or_404(key), {})
+    entity = entity_or_404(key)
+    require_access(current_user(request), key, write=True)
+    return await render_form(request, entity, {})
 
 
 @router.get("/workspace/{key}/{record_id}/edit", response_class=HTMLResponse)
 async def edit_form(request: Request, key: str, record_id: int) -> HTMLResponse:
     entity = entity_or_404(key)
-    row = await repository.get_record(request.app.state.db_pool, key, record_id)
+    user = current_user(request)
+    require_access(user, key, write=True)
+    row = await repository.get_record(request.app.state.db_pool, key, record_id, user)
     if row is None:
         raise HTTPException(404, "Запись не найдена")
     return await render_form(request, entity, row, record_id)
@@ -189,18 +229,21 @@ async def edit_form(request: Request, key: str, record_id: int) -> HTMLResponse:
 @router.post("/workspace/{key}/save", response_class=HTMLResponse)
 async def save_form(request: Request, key: str) -> Response:
     entity = entity_or_404(key)
+    user = current_user(request)
+    require_access(user, key, write=True)
     form = dict(await request.form(max_fields=50, max_files=0))
+    check_csrf(request, form)
     try:
         record_id = int(form["_id"]) if form.get("_id") else None
     except (ValueError, TypeError):
         raise HTTPException(422, "Некорректный идентификатор") from None
     if record_id is not None and not await repository.get_record(
-        request.app.state.db_pool, key, record_id
+        request.app.state.db_pool, key, record_id, user
     ):
         raise HTTPException(404, "Запись не найдена")
     try:
         saved_id, errors = await service.save(
-            request.app.state.db_pool, entity, form, record_id
+            request.app.state.db_pool, entity, form, user, record_id
         )
     except DatabaseError:
         return await render_form(
@@ -224,4 +267,13 @@ async def database_error(request: Request, exc: Exception) -> HTMLResponse:
         name="error.html",
         status_code=503,
         context=context(request),
+    )
+
+
+async def access_denied(request: Request, exc: AccessDeniedError) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="denied.html",
+        status_code=403,
+        context=context(request, message=str(exc)),
     )

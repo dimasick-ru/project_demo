@@ -19,11 +19,12 @@
     <div class="nav-group">{{ group }}</div>
     {% for item in entities.values() if item.group == group %}<a href="/workspace/{{ item.key }}" class="nav-item {% if active == item.key %}selected{% endif %}" {% if active == item.key %}aria-current="page"{% endif %}>{{ item.title }}</a>{% endfor %}
     {% endfor %}
+    {% if user and user.role == 'director' %}<div class="nav-group">Управление доступом</div><a class="nav-item {% if active == 'accounts' %}selected{% endif %}" href="/team/accounts">Учётные записи</a>{% endif %}
   </nav>
   <div class="sidebar-footer"><span class="status-dot"></span> Прототип для демонстрации</div>
 </aside>
 <div class="main-shell">
-  <header class="topbar"><button type="button" class="btn btn-light mobile-menu" aria-label="Открыть меню" aria-expanded="false" aria-controls="navigation">☰</button><span>Центр здоровья и заботы</span><div class="d-flex align-items-center gap-3"><span class="demo-badge">ДЕМО</span><span class="avatar">РД</span></div></header>
+  <header class="topbar"><button type="button" class="btn btn-light mobile-menu" aria-label="Открыть меню" aria-expanded="false" aria-controls="navigation">☰</button><span>Центр здоровья и заботы</span><div class="d-flex align-items-center gap-3">{% if user %}<div class="user-caption"><strong>{{ user.name }}</strong><small>{{ role_labels[user.role] }}</small></div><form action="/logout" method="post"><input type="hidden" name="_csrf" value="{{ user.csrf_token }}"><button class="btn btn-light btn-sm" type="submit">Выйти</button></form>{% else %}<a href="/login" class="btn btn-primary">Войти</a>{% endif %}</div></header>
   <main class="content">{% block content %}{% endblock %}</main>
   <footer class="page-footer">Рецепты долголетия <span>Рабочий прототип · данные сохраняются локально</span></footer>
 </div>

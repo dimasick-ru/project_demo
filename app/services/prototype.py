@@ -6,7 +6,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic import Field as PydanticField
 
+from app.core.access import OWNED, PARENTS, AccessDeniedError, User
 from app.core.catalog import Entity
+from app.repositories import auth as auth_repository
 from app.repositories import prototype as repository
 
 
@@ -70,19 +72,54 @@ def validate(entity: Entity, raw: dict) -> tuple[dict, dict[str, str]]:
 
 
 async def save(
-    pool: Any, entity: Entity, raw: dict, record_id: int | None = None
+    pool: Any, entity: Entity, raw: dict, user: User, record_id: int | None = None
 ) -> tuple[int | None, dict[str, str]]:
     values, errors = validate(entity, raw)
+    referenced = {}
     for field in entity.fields:
-        if (
-            field.reference
-            and values.get(field.key)
-            and field.key not in errors
-            and not await repository.get_record(
-                pool, field.reference, values[field.key]
+        if not field.reference or not values.get(field.key) or field.key in errors:
+            continue
+        if field.reference == "employees":
+            options = await auth_repository.employee_options(pool, user)
+            row = {"id": values[field.key]} if values[field.key] in options else None
+        else:
+            row = await repository.get_record(
+                pool, field.reference, values[field.key], user
             )
-        ):
+        if row is None:
+            if user.role == "manager":
+                raise AccessDeniedError("Выбрана запись, к которой у вас нет доступа")
             errors[field.key] = "Запись не найдена. Выберите другую"
+        else:
+            referenced[field.key] = row
+    if entity.key in OWNED:
+        if user.role == "manager":
+            values["owner_employee_id"] = user.employee_id
+            if raw.get("owner_employee_id") not in (None, "", str(user.employee_id)):
+                raise AccessDeniedError(
+                    "Менеджер не может назначить другого ответственного"
+                )
+        elif entity.key in PARENTS and referenced.get(PARENTS[entity.key][0]):
+            values["owner_employee_id"] = referenced[PARENTS[entity.key][0]].get(
+                "owner_employee_id"
+            )
+        else:
+            owner = str(raw.get("owner_employee_id", "")).strip()
+            options = await auth_repository.manager_options(pool)
+            if not owner:
+                values["owner_employee_id"] = None
+            elif not owner.isdigit() or int(owner) not in options:
+                errors["owner_employee_id"] = "Выберите менеджера из списка"
+            else:
+                values["owner_employee_id"] = int(owner)
+    if user.role == "manager" and entity.key == "sales" and "positions" not in errors:
+        allowed = await repository.list_records(pool, "nomenclature", user)
+        allowed_names = {row["name"] for row in allowed}
+        for position in values.get("positions", []):
+            if position.get("номенклатура") not in allowed_names:
+                raise AccessDeniedError(
+                    "Позиции продажи должны содержать только ваши товары и услуги"
+                )
     if errors:
         return None, errors
-    return await repository.save_record(pool, entity.key, values, record_id), {}
+    return await repository.save_record(pool, entity.key, values, user, record_id), {}

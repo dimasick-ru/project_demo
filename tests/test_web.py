@@ -5,8 +5,10 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.access import User
 from app.core.catalog import ENTITIES
 from app.main import app
+from app.repositories import auth as auth_repository
 from app.repositories import prototype as repository
 from app.services.prototype import validate
 from app.web.routes import input_value
@@ -46,15 +48,15 @@ def web(monkeypatch):
         }
     ]
 
-    async def listing(pool, key):
+    async def listing(pool, key, user):
         return deepcopy(data[key])
 
-    async def get(pool, key, record_id):
+    async def get(pool, key, record_id, user):
         return next(
             (deepcopy(row) for row in data[key] if row["id"] == record_id), None
         )
 
-    async def save(pool, key, values, record_id=None):
+    async def save(pool, key, values, user, record_id=None):
         record_id = record_id or max((r["id"] for r in data[key]), default=0) + 1
         data[key] = [row for row in data[key] if row["id"] != record_id]
         data[key].insert(0, {"id": record_id, **values})
@@ -63,8 +65,33 @@ def web(monkeypatch):
     monkeypatch.setattr(repository, "list_records", listing)
     monkeypatch.setattr(repository, "get_record", get)
     monkeypatch.setattr(repository, "save_record", save)
+
+    async def resolve(pool, token):
+        return (
+            User(1, 1, "director", "Руководитель", "director", "test-csrf")
+            if token == "test-session"
+            else None
+        )
+
+    async def managers(pool):
+        return {1: "Менеджер"}
+
+    async def employees(pool, user):
+        return {1: "Сотрудник"}
+
+    monkeypatch.setattr(auth_repository, "resolve_session", resolve)
+    monkeypatch.setattr(auth_repository, "manager_options", managers)
+    monkeypatch.setattr(auth_repository, "employee_options", employees)
     app.state.db_pool = object()
     with TestClient(app, raise_server_exceptions=True) as client:
+        client.cookies.set(auth_repository.COOKIE, "test-session")
+        original_post = client.post
+
+        def post(url, **kwargs):
+            kwargs["data"] = {"_csrf": "test-csrf", **kwargs.get("data", {})}
+            return original_post(url, **kwargs)
+
+        client.post = post
         yield client, data
 
 
@@ -89,6 +116,27 @@ def test_overview_and_local_assets(web):
     assert "Тестовый клиент" in response.text
     for path in ("app.css", "app.js", "vendor/bootstrap.min.css", "vendor/htmx.min.js"):
         assert client.get(f"/static/{path}").status_code == 200
+
+
+def test_unauthenticated_requests_and_forged_cookie(web):
+    client, _ = web
+    client.cookies.clear()
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+    assert client.get("/items").status_code == 401
+    assert (
+        client.post("/workspace/clients/save", data={"name": "Test"}).status_code == 401
+    )
+    client.cookies.set(auth_repository.COOKIE, "forged-session")
+    assert client.get("/workspace/clients", follow_redirects=False).status_code == 303
+
+
+def test_missing_csrf_rejected(web):
+    client, data = web
+    response = client.request("POST", "/workspace/clients/save", data={"name": "Test"})
+    assert response.status_code == 403
+    assert len(data["clients"]) == 1
 
 
 @pytest.mark.parametrize("key", ENTITIES)
