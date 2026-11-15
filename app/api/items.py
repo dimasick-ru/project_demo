@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
-from app.repositories.items import get_all_items, create_item as create_item_repo
+
+from app.repositories.items import create_item as create_item_repo
+from app.repositories.items import get_all_items
 
 router = APIRouter(prefix="/items", tags=["Товары"])
 

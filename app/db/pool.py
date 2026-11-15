@@ -1,6 +1,8 @@
 from psycopg.conninfo import make_conninfo
 from psycopg_pool import AsyncConnectionPool
+
 from app.core.config import get_settings
+
 
 def create_db_poll() -> AsyncConnectionPool:
     settings = get_settings()

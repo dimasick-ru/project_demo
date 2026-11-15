@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from app.db.pool import create_db_poll
+
 from app.api.items import router as items_router
+from app.db.pool import create_db_poll
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
