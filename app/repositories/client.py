@@ -1,5 +1,6 @@
 from psycopg import AsyncConnection
 
+
 async def create_client(
     conn: AsyncConnection,
     full_name: str,

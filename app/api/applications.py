@@ -1,10 +1,13 @@
-from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, HTTPException, Query, Request
 from psycopg import IntegrityError
+from pydantic import BaseModel, Field, model_validator
 
-from app.services.application_service import register_aplication
+from app.repositories.aplications import get_aplication, get_aplications
+from app.services.application_service import (
+    change_application_status,
+    register_aplication,
+)
 
 router = APIRouter(prefix="/applications", tags=["Заявки"])
 
@@ -49,3 +52,56 @@ async def create_application(data: ApplicationCreate, request: Request):
             status_code=409,
             detail=f"Неверная ссылка на: {exc}",
         ) from exc
+
+
+class ApplicationStatusUpdate(BaseModel):
+    status: str = Field(min_length=1)
+
+
+@router.get("")
+async def list_aplications(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0)
+):
+
+    async with request.app.state.db_pool.connection() as conn:
+        return await get_aplications(conn, limit, offset)
+
+@router.get("/{application_id}")
+async def read_application(
+    application_id: int,
+    request: Request,
+):
+    async with request.app.state.db_pool.connection() as conn:
+        application = await get_aplication(conn, application_id)
+
+    if application is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Заявка не найдена",
+        )
+
+    return application
+
+
+@router.patch("/{application_id}/status")
+async def patch_application_status(
+    application_id: int,
+    data: ApplicationStatusUpdate,
+    request: Request,
+):
+    async with request.app.state.db_pool.connection() as conn:
+        result = await change_application_status(
+            conn,
+            application_id,
+            data.status.strip(),
+        )
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Заявка не найдена",
+        )
+
+    return result

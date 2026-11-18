@@ -2,9 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.applications import router as applications_router
 from app.api.items import router as items_router
 from app.db.pool import create_db_poll
-from app.api.applications import router as applications_router
 
 
 @asynccontextmanager
@@ -36,9 +36,8 @@ async def health_check():
 
 @app.get("/health/db")
 async def database_health():
-    async with app.state.db_pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT 1")
-            result = await cur.fetchone()
+    async with app.state.db_pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT 1")
+        result = await cur.fetchone()
 
     return {"database": "ok" if result[0] == 1 else "error"}
